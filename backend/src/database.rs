@@ -7,7 +7,7 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
     update,
 };
-use failure::Error;
+use failure::Fallible;
 use webapp::{protocol::model::Session, schema::sessions::dsl::*};
 
 /// The database executor actor
@@ -21,17 +21,17 @@ impl Actor for DatabaseExecutor {
 pub struct CreateSession(pub String);
 
 impl Message for CreateSession {
-    type Result = Result<Session, Error>;
+    type Result = Fallible<Session>;
 }
 
 impl Handler<CreateSession> for DatabaseExecutor {
-    type Result = Result<Session, Error>;
+    type Result = Fallible<Session>;
 
     fn handle(&mut self, msg: CreateSession, _: &mut Self::Context) -> Self::Result {
         // Insert the session into the database
         debug!("Creating new session: {}", msg.0);
         Ok(insert_into(sessions)
-            .values(&Session { token: msg.0 })
+            .values(&Session::new(msg.0))
             .get_result::<Session>(&self.0.get()?)?)
     }
 }
@@ -46,11 +46,11 @@ pub struct UpdateSession {
 }
 
 impl Message for UpdateSession {
-    type Result = Result<Session, Error>;
+    type Result = Fallible<Session>;
 }
 
 impl Handler<UpdateSession> for DatabaseExecutor {
-    type Result = Result<Session, Error>;
+    type Result = Fallible<Session>;
 
     fn handle(&mut self, msg: UpdateSession, _: &mut Self::Context) -> Self::Result {
         // Update the session
@@ -65,11 +65,11 @@ impl Handler<UpdateSession> for DatabaseExecutor {
 pub struct DeleteSession(pub String);
 
 impl Message for DeleteSession {
-    type Result = Result<(), Error>;
+    type Result = Fallible<()>;
 }
 
 impl Handler<DeleteSession> for DatabaseExecutor {
-    type Result = Result<(), Error>;
+    type Result = Fallible<()>;
 
     fn handle(&mut self, msg: DeleteSession, _: &mut Self::Context) -> Self::Result {
         // Delete the session

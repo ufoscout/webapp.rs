@@ -1,10 +1,9 @@
 //! The Main Content component
 
-use failure::Error;
+use api::Response;
 use route::RouterTarget;
 use service::{
     cookie::CookieService,
-    router::{self, RouterAgent},
     session_timer::{self, SessionTimerAgent},
     uikit::{NotificationStatus, UIkitService},
 };
@@ -13,14 +12,8 @@ use webapp::{
     protocol::{model::Session, request, response},
     API_URL_LOGOUT,
 };
-use yew::{
-    format::Cbor,
-    prelude::*,
-    services::{
-        fetch::{self, FetchTask},
-        FetchService,
-    },
-};
+use yew::{format::Cbor, prelude::*, services::fetch::FetchTask};
+use yew_router::{self, RouterAgent};
 use SESSION_COOKIE;
 
 /// Data Model for the Content component
@@ -36,7 +29,7 @@ pub struct ContentComponent {
 
 /// Available message types to process
 pub enum Message {
-    Fetch(fetch::Response<Cbor<Result<response::Logout, Error>>>),
+    Fetch(Response<response::Logout>),
     Ignore,
     LogoutRequest,
 }
@@ -54,7 +47,7 @@ impl Component for ContentComponent {
             SessionTimerAgent::bridge(link.send_back(|_| Message::Ignore));
         if cookie_service.get(SESSION_COOKIE).is_err() {
             info!("No session token found, routing back to login");
-            router_agent.send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+            router_agent.send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
         } else {
             // Start the timer to keep the session active
             session_timer_agent.send(session_timer::Request::Start);
@@ -81,35 +74,25 @@ impl Component for ContentComponent {
         match msg {
             Message::LogoutRequest => {
                 if let Ok(token) = self.cookie_service.get(SESSION_COOKIE) {
-                    // Create the logout request
-                    match fetch::Request::post(api!(API_URL_LOGOUT)).body(Cbor(&request::Logout(
-                        Session {
-                            token: token.to_owned(),
-                        },
-                    ))) {
-                        Ok(body) => {
+                    self.fetch_task = fetch! {
+                        request::Logout(Session::new(token)) => API_URL_LOGOUT,
+                        self.component_link, Message::Fetch,
+                        || {
                             // Disable user interaction
                             self.logout_button_disabled = true;
-
-                            // Send the request
-                            self.fetch_task =
-                                Some(FetchService::new().fetch_binary(
-                                    body,
-                                    self.component_link.send_back(Message::Fetch),
-                                ));
-                        }
-                        _ => {
+                        },
+                        || {
                             error!("Unable to create logout request");
                             self.uikit_service
                                 .notify(REQUEST_ERROR, &NotificationStatus::Danger);
                         }
-                    }
+                    };
                 } else {
                     // It should not happen but in case there is no session cookie on logout, route
                     // back to login
                     error!("No session cookie found");
                     self.router_agent
-                        .send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+                        .send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
                 }
             }
 
@@ -135,7 +118,7 @@ impl Component for ContentComponent {
                 self.cookie_service.remove(SESSION_COOKIE);
                 self.session_timer_agent.send(session_timer::Request::Stop);
                 self.router_agent
-                    .send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+                    .send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
                 self.logout_button_disabled = true;
 
                 // Remove the ongoing task

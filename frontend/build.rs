@@ -1,27 +1,26 @@
 extern crate failure;
 extern crate sass_rs;
-extern crate toml;
 extern crate url;
 extern crate webapp;
 
-use failure::Error;
+use failure::Fallible;
 use sass_rs::{compile_file, Options, OutputStyle};
 use std::{
     env,
-    fs::{copy, read_to_string, write},
+    fs::{copy, write},
     path::{Path, PathBuf},
     process::Command,
 };
 use url::Url;
 use webapp::{config::Config, CONFIG_FILENAME};
 
-const REPOSITORY: &str = "https://github.com/uikit/uikit.git";
-const TAG: &str = "v3.0.0-rc.10";
+const REPOSITORY: &str = "https://github.com/uikit/uikit";
+const TAG: &str = "v3.0.0-rc.11";
 const CSS_FILE: &str = "style.css";
 const SCSS_FILE: &str = "style.scss";
 
-pub fn main() -> Result<(), Error> {
-    // Prepeare UIKit and build the complete style
+pub fn main() -> Fallible<()> {
+    // Prepeare UIkit and build the complete style
     prepare_style()?;
 
     // Prepare the API URL paths
@@ -30,7 +29,7 @@ pub fn main() -> Result<(), Error> {
     Ok(())
 }
 
-fn run<F>(name: &str, mut configure: F) -> Result<(), Error>
+fn run<F>(name: &str, mut configure: F) -> Fallible<()>
 where
     F: FnMut(&mut Command) -> &mut Command,
 {
@@ -42,14 +41,14 @@ where
     Ok(())
 }
 
-fn prepare_style() -> Result<(), Error> {
+fn prepare_style() -> Fallible<()> {
     // Prepare the directory
     let out_dir = env::var("OUT_DIR")?;
     let mut target = PathBuf::from(out_dir);
     target.push("uikit");
 
     // Clone the repo if needed
-    if !Path::new(&target.join(".git")).exists() {
+    if !Path::new(&target).exists() {
         run("git", |command| {
             command
                 .arg("clone")
@@ -82,8 +81,8 @@ fn prepare_style() -> Result<(), Error> {
     Ok(())
 }
 
-fn prepare_api() -> Result<(), Error> {
-    let config: Config = toml::from_str(&read_to_string(format!("../{}", CONFIG_FILENAME))?)?;
+fn prepare_api() -> Fallible<()> {
+    let config = Config::new(&format!("../{}", CONFIG_FILENAME))?;
     let url = Url::parse(&config.server.url)?;
     println!("cargo:rustc-env=API_URL={}", url);
     Ok(())

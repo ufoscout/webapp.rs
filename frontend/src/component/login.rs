@@ -1,27 +1,20 @@
 //! The Login component
 
-use failure::Error;
+use api::Response;
 use route::RouterTarget;
 use service::{
     cookie::CookieService,
-    router::{self, RouterAgent},
     uikit::{NotificationStatus, UIkitService},
 };
 use string::{
     AUTHENTICATION_ERROR, INPUT_PASSWORD, INPUT_USERNAME, REQUEST_ERROR, RESPONSE_ERROR, TEXT_LOGIN,
 };
 use webapp::{
-    protocol::{model::Session, request, response},
+    protocol::{model::Session, request::LoginCredentials, response::Login},
     API_URL_LOGIN_CREDENTIALS,
 };
-use yew::{
-    format::Cbor,
-    prelude::*,
-    services::{
-        fetch::{self, FetchTask},
-        FetchService,
-    },
-};
+use yew::{format::Cbor, prelude::*, services::fetch::FetchTask};
+use yew_router::{self, RouterAgent};
 use SESSION_COOKIE;
 
 /// Data Model for the Login component
@@ -39,7 +32,7 @@ pub struct LoginComponent {
 
 /// Available message types to process
 pub enum Message {
-    Fetch(fetch::Response<Cbor<Result<response::Login, Error>>>),
+    Fetch(Response<Login>),
     Ignore,
     LoginRequest,
     UpdatePassword(String),
@@ -75,29 +68,23 @@ impl Component for LoginComponent {
         match msg {
             // Login via username and password
             Message::LoginRequest => {
-                match fetch::Request::post(api!(API_URL_LOGIN_CREDENTIALS)).body(Cbor(
-                    &request::LoginCredentials {
+                self.fetch_task = fetch! {
+                    LoginCredentials {
                         username: self.username.to_owned(),
                         password: self.password.to_owned(),
-                    },
-                )) {
-                    Ok(body) => {
+                    } => API_URL_LOGIN_CREDENTIALS,
+                    self.component_link, Message::Fetch,
+                    || {
                         // Disable user interaction
                         self.login_button_disabled = true;
                         self.inputs_disabled = true;
-
-                        // Send the request
-                        self.fetch_task = Some(
-                            FetchService::new()
-                                .fetch_binary(body, self.component_link.send_back(Message::Fetch)),
-                        );
-                    }
-                    _ => {
+                    },
+                    || {
                         error!("Unable to create credentials login request");
                         self.uikit_service
                             .notify(REQUEST_ERROR, &NotificationStatus::Danger);
                     }
-                }
+                };
             }
 
             Message::UpdateUsername(new_username) => {
@@ -116,15 +103,16 @@ impl Component for LoginComponent {
                 // Check the response type
                 if meta.status.is_success() {
                     match body {
-                        Ok(response::Login(Session { token })) => {
+                        Ok(Login(Session { token })) => {
                             info!("Credential based login succeed");
 
                             // Set the retrieved session cookie
                             self.cookie_service.set(SESSION_COOKIE, &token);
 
                             // Route to the content component
-                            self.router_agent
-                                .send(router::Request::ChangeRoute(RouterTarget::Content.into()));
+                            self.router_agent.send(yew_router::Request::ChangeRoute(
+                                RouterTarget::Content.into(),
+                            ));
                         }
                         _ => {
                             warn!("Got wrong credentials login response");

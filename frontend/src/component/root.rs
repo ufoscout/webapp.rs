@@ -1,26 +1,19 @@
 //! The Root component as main entry point of the frontend application
 
+use api::Response;
 use component::{content::ContentComponent, login::LoginComponent};
-use failure::Error;
 use route::RouterTarget;
 use service::{
     cookie::CookieService,
-    router::{self, Route, RouterAgent},
     uikit::{NotificationStatus, UIkitService},
 };
 use string::{REQUEST_ERROR, RESPONSE_ERROR};
 use webapp::{
-    protocol::{model::Session, request, response},
+    protocol::{model::Session, request::LoginSession, response::Login},
     API_URL_LOGIN_SESSION,
 };
-use yew::{
-    format::Cbor,
-    prelude::*,
-    services::{
-        fetch::{self, FetchTask},
-        FetchService,
-    },
-};
+use yew::{format::Cbor, prelude::*, services::fetch::FetchTask};
+use yew_router::{self, Route, RouterAgent};
 use SESSION_COOKIE;
 
 /// Data Model for the Root Component
@@ -34,7 +27,7 @@ pub struct RootComponent {
 
 /// Available message types to process
 pub enum Message {
-    Fetch(fetch::Response<Cbor<Result<response::Login, Error>>>),
+    Fetch(Response<Login>),
     Route(Route<()>),
 }
 
@@ -51,25 +44,20 @@ impl Component for RootComponent {
 
         // Verify if a session cookie already exist and try to authenticate if so
         if let Ok(token) = cookie_service.get(SESSION_COOKIE) {
-            match fetch::Request::post(api!(API_URL_LOGIN_SESSION)).body(Cbor(
-                &request::LoginSession(Session {
-                    token: token.to_owned(),
-                }),
-            )) {
-                Ok(body) => {
-                    fetch_task =
-                        Some(FetchService::new().fetch_binary(body, link.send_back(Message::Fetch)))
-                }
-                Err(_) => {
+            fetch_task = fetch! {
+                LoginSession(Session::new(token)) => API_URL_LOGIN_SESSION,
+                link, Message::Fetch,
+                || {},
+                || {
                     error!("Unable to create session login request");
                     uikit_service.notify(REQUEST_ERROR, &NotificationStatus::Danger);
                     cookie_service.remove(SESSION_COOKIE);
-                    router_agent.send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+                    router_agent.send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
                 }
-            }
+            };
         } else {
             info!("No token found, routing to login");
-            router_agent.send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+            router_agent.send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
         }
 
         // Return the component
@@ -98,15 +86,16 @@ impl Component for RootComponent {
                 // Check the response type
                 if meta.status.is_success() {
                     match body {
-                        Ok(response::Login(Session { token })) => {
+                        Ok(Login(Session { token })) => {
                             info!("Session based login succeed");
 
                             // Set the retrieved session cookie
                             self.cookie_service.set(SESSION_COOKIE, &token);
 
                             // Route to the content component
-                            self.router_agent
-                                .send(router::Request::ChangeRoute(RouterTarget::Content.into()));
+                            self.router_agent.send(yew_router::Request::ChangeRoute(
+                                RouterTarget::Content.into(),
+                            ));
                         }
                         _ => {
                             // Send an error notification to the user on any failure
@@ -114,7 +103,7 @@ impl Component for RootComponent {
                             self.uikit_service
                                 .notify(RESPONSE_ERROR, &NotificationStatus::Danger);
                             self.router_agent
-                                .send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+                                .send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
                         }
                     }
                 } else {
@@ -122,7 +111,7 @@ impl Component for RootComponent {
                     warn!("Session login failed with status: {}", meta.status);
                     self.cookie_service.remove(SESSION_COOKIE);
                     self.router_agent
-                        .send(router::Request::ChangeRoute(RouterTarget::Login.into()));
+                        .send(yew_router::Request::ChangeRoute(RouterTarget::Login.into()));
                 }
 
                 // Remove the ongoing task
@@ -149,12 +138,12 @@ impl Renderable<RootComponent> for RouterTarget {
             }
             RouterTarget::Login => {
                 html! {
-                   <LoginComponent:/>
+                    <LoginComponent:/>
                 }
             }
             RouterTarget::Content => {
                 html! {
-                   <ContentComponent:/>
+                    <ContentComponent:/>
                 }
             }
             RouterTarget::Error => {

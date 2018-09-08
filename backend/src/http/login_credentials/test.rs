@@ -5,22 +5,20 @@
 use actix::prelude::*;
 use actix_web::test::TestServer;
 use database::CreateSession;
-use failure::Error;
+use failure::Fallible;
 use http::{
     login_credentials::login_credentials,
     test::{execute_request, state, DatabaseExecutorMock},
 };
 use serde_cbor::to_vec;
 use token::Token;
-use webapp::protocol::{model::Session, request};
+use webapp::protocol::{model::Session, request::LoginCredentials};
 
 impl Handler<CreateSession> for DatabaseExecutorMock {
-    type Result = Result<Session, Error>;
+    type Result = Fallible<Session>;
 
     fn handle(&mut self, _: CreateSession, _: &mut Self::Context) -> Self::Result {
-        Ok(Session {
-            token: Token::create("username").unwrap(),
-        })
+        Ok(Session::new(Token::create("username").unwrap()))
     }
 }
 
@@ -29,48 +27,51 @@ fn create_testserver() -> TestServer {
 }
 
 #[test]
-fn succeed_to_login_with_credentials() {
+fn succeed_to_login_with_credentials() -> Fallible<()> {
     // Given
     let mut server = create_testserver();
-    let body = to_vec(&request::LoginCredentials {
+    let body = to_vec(&LoginCredentials {
         username: "username".to_owned(),
         password: "username".to_owned(),
-    }).unwrap();
+    })?;
 
     // When
-    let response = execute_request(&mut server, body);
+    let response = execute_request(&mut server, body)?;
 
     // Then
     assert!(response.status().is_success());
+    Ok(())
 }
 
 #[test]
-fn fail_to_login_with_wrong_credentials() {
+fn fail_to_login_with_wrong_credentials() -> Fallible<()> {
     // Given
     let mut server = create_testserver();
-    let body = to_vec(&request::LoginCredentials {
+    let body = to_vec(&LoginCredentials {
         username: "username".to_owned(),
         password: "password".to_owned(),
-    }).unwrap();
+    })?;
 
     // When
-    let response = execute_request(&mut server, body);
+    let response = execute_request(&mut server, body)?;
 
     // Then
     assert_eq!(response.status().is_success(), false);
+    Ok(())
 }
 
 #[test]
-fn fail_to_login_with_invalid_cbor() {
+fn fail_to_login_with_invalid_cbor() -> Fallible<()> {
     // Given
     #[derive(Serialize)]
     struct Invalid;
     let mut server = create_testserver();
-    let body = to_vec(&Invalid).unwrap();
+    let body = to_vec(&Invalid)?;
 
     // When
-    let response = execute_request(&mut server, body);
+    let response = execute_request(&mut server, body)?;
 
     // Then
     assert_eq!(response.status().is_success(), false);
+    Ok(())
 }
